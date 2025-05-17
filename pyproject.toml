@@ -5,11 +5,19 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "authlib>=1.5.2",
+    "fastapi>=0.115.12",
+    "fitdecode>=0.10.0",
     "fitparse>=1.2.0",
+    "gpxpy>=1.6.2",
     "jupyter>=1.1.1",
     "matplotlib>=3.10.3",
     "pandas>=2.2.3",
     "pydantic>=2.11.4",
+    "pydantic-settings>=2.9.1",
+    "sqlalchemy>=2.0.41",
+    "starlette>=0.46.2",
+    "uvicorn>=0.34.2",
 ]
 
 [tool.ruff]
