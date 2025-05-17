@@ -28,7 +28,7 @@ export default function UploadForm({ onComplete }) {
       <label htmlFor="strava-zip" style={{fontWeight:600, color:'var(--color-primary)', fontSize:'1.1rem'}}>Select your Strava ZIP file</label>
       <input id="strava-zip" type="file" accept=".zip" onChange={(e)=>setFile(e.target.files[0])} aria-required="true"/>
       <div style={{fontSize:'0.95rem', color:'var(--color-muted)', marginBottom:'1rem'}}>Download your Strava data export as a .zip file and upload it here for instant analysis.</div>
-      <button className="button" type="submit" disabled={loading} aria-busy={loading} aria-live="polite">
+      <button className="button" type="submit" disabled={loading || !file} aria-busy={loading} aria-live="polite">
         {loading ? <span style={{display:'inline-flex',alignItems:'center'}}><span className="spinner" style={{marginRight:8, width:18, height:18, border:'3px solid #fff', borderTop:'3px solid var(--color-primary)', borderRadius:'50%', display:'inline-block', animation:'spin 1s linear infinite'}}></span>Processing...</span> : 'Upload & Analyze'}
       </button>
       <style>{`@keyframes spin { 0% { transform: rotate(0deg);} 100% { transform: rotate(360deg);} } @keyframes fadein { from { opacity: 0; transform: translateY(24px);} to { opacity: 1; transform: none;} }`}</style>
