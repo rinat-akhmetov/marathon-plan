@@ -1,9 +1,9 @@
 import os
 from typing import Any, Dict, List, Optional
 
-from parse_strava_fit import parse_fit
-from parse_strava_gpx import parse_gpx
-from utils import CsvRowData, GpxData, write_csv
+from src.parse_strava_fit import parse_fit
+from src.parse_strava_gpx import parse_gpx
+from src.utils import CsvRowData, GpxData, write_csv
 
 
 def main():
