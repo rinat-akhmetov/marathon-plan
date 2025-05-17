@@ -7,8 +7,9 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from parse_strava_fit import parse_fit
-from parse_strava_gpx import parse_gpx
+
+from .parse_strava_fit import parse_fit
+from .parse_strava_gpx import parse_gpx
 
 HR_ZONES = [(0, 0.6), (0.6, 0.7), (0.7, 0.8), (0.8, 0.9), (0.9, 1.0)]
 

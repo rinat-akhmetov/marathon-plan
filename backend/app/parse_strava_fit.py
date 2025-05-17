@@ -25,7 +25,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from utils import TrackPoint
+from .utils import TrackPoint
 
 try:
     from fitparse import FitFile  # type: ignore
