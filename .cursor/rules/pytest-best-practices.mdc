@@ -1,0 +1,206 @@
+---
+description: 
+globs: **/tests/**/*.py,**/tests/**/*.json
+alwaysApply: false
+---
+# Pytest Best Practices
+
+## Test Structure and Organization
+
+- Write self-contained tests that focus on testing specific business functionality
+- Group related tests in classes when they share common fixtures or setup
+- Use descriptive test names that explain what's being tested and expected behavior
+- Structure tests in Arrange-Act-Assert pattern:
+  ```python
+  def test_specific_behavior():
+      # Arrange - set up test data and environment
+      ...
+      # Act - call the function/method being tested
+      result = function_under_test()
+      # Assert - verify the function behaved as expected
+      assert result == expected_value
+  ```
+
+## End-to-End Testing
+
+- Write end-to-end tests that verify complete microservice functionality
+- Test realistic user scenarios and business flows
+- Focus on testing business requirements rather than implementation details
+- Example:
+  ```python
+  @mock_aws
+  def test_process_document_event_merges_and_persists(classification_payload, embedding_payload):
+      """End-to-end test of ``process_document_event`` using moto-mocked S3.
+      
+      Tests the complete flow from input documents to persisted merged result.
+      """
+      # Arrange - setup test environment
+      # Act - run the business logic
+      # Assert - verify expected outcomes
+  ```
+
+## AWS Service Mocking
+
+- Use moto for mocking AWS services in tests
+- Create mock AWS resources inside the test function using the `@mock_aws` decorator
+- Bootstrap AWS resources (S3 buckets, DynamoDB tables, etc.) with realistic test data
+- Import functions-under-test after moto activation to ensure they use the mocked services
+- Example:
+  ```python
+  @mock_aws
+  def test_s3_operations():
+      # Set up mocked S3
+      s3 = boto3.client("s3", region_name="us-west-2")
+      s3.create_bucket(
+          Bucket="test-bucket", 
+          CreateBucketConfiguration={"LocationConstraint": "us-west-2"}
+      )
+      
+      # Upload test data
+      s3.put_object(
+          Bucket="test-bucket",
+          Key="test-key",
+          Body=json.dumps(test_data).encode(),
+          ContentType="application/json",
+      )
+      
+      # Import after moto is active
+      from app import function_under_test
+      
+      # Run test and assert results
+  ```
+
+## Database Testing
+
+- Use in-memory SQLite for testing database operations
+- Create isolated database sessions for each test function
+- Implement proper session cleanup after tests
+- Generate realistic test data that mimics production scenarios
+- Example:
+  ```python
+  @pytest.fixture(scope="function")
+  def db_session():
+      engine = create_engine("sqlite:///:memory:")
+      Base.metadata.create_all(engine)
+      SessionLocal = sessionmaker(bind=engine)
+      session = SessionLocal()
+      
+      # Override the session provider to use our test session
+      original_get = SessionProvider.get_session
+      SessionProvider.get_session = lambda: session
+      
+      yield session
+      
+      # Restore original session provider
+      SessionProvider.get_session = original_get
+      session.close()
+  ```
+
+## Fixtures
+
+- Create modular, reusable fixtures with appropriate scopes
+- Use fixture scope wisely:
+  - `function`: Default, isolated per test
+  - `class`: Shared across tests in a class
+  - `module`: Shared across all tests in a module
+  - `session`: Shared across all tests
+- Load test data from fixture files for complex test scenarios
+- Example:
+  ```python
+  @pytest.fixture(scope="session")
+  def fixtures_dir() -> Path:
+      """Path to the directory that contains the test fixtures."""
+      return Path(__file__).parent / "fixtures"
+      
+  @pytest.fixture(scope="session")
+  def test_payload(fixtures_dir: Path) -> dict:
+      return json.loads((fixtures_dir / "test_data.json").read_text())
+  ```
+
+## Environment Management
+
+- Patch environment variables for tests to avoid modifying the real environment
+- Use the monkeypatch fixture to manage environment variables
+- Set all required environment variables for the test context
+- Example:
+  ```python
+  @pytest.fixture(autouse=True)
+  def _patch_env(monkeypatch):
+      monkeypatch.setenv("AWS_DEFAULT_REGION", "us-west-2")
+      monkeypatch.setenv("BUCKET_NAME", "test-bucket")
+      monkeypatch.setenv("TABLE_NAME", "test-table")
+      monkeypatch.setenv("TESTING", "true")
+  ```
+
+## Mocks and Stubs
+
+- Create realistic mock objects that mimic actual behavior
+- Use stubs for AWS context objects or other external dependencies
+- Example:
+  ```python
+  class MockLambdaContext:
+      function_name = "test_function"
+      memory_limit_in_mb = 128
+      invoked_function_arn = "arn:aws:lambda:us-west-2:000000000000:function:test_function"
+      aws_request_id = "test-request-id"
+  ```
+
+## Test Data
+
+- Store test data in JSON fixtures for complex test scenarios
+- Create helper functions to load and prepare test data
+- Use factory functions to generate test data programmatically
+- Example:
+  ```python
+  def _load_json(name: str) -> dict:
+      return json.loads((Path(__file__).parent / "fixtures" / name).read_text())
+      
+  @pytest.fixture(scope="session")
+  def document_data():
+      return _load_json("document_data.json")
+  ```
+
+## Assertions
+
+- Use descriptive assertions that clearly explain what is being tested
+- Include helpful error messages in assertions
+- Test both positive and negative scenarios
+- Example:
+  ```python
+  # Test successful case
+  assert result.status_code == 200, f"Expected success response, got {result.status_code}"
+  
+  # Test error case
+  with pytest.raises(ValueError, match="Invalid document ID"):
+      process_document("invalid-id")
+  ```
+
+## Coverage and Quality
+
+- Use pytest-cov to measure test coverage
+- Aim for high test coverage of business logic (>85%)
+- Focus on testing business requirements and edge cases
+- Don't create tests just for coverage metrics
+- Run tests with:
+  ```
+  pytest --cov=app tests/
+  ```
+
+## Parameterized Tests
+
+- Use `@pytest.mark.parametrize` for testing multiple input/output combinations
+- Avoid duplicate test code by parameterizing test cases
+- Example:
+  ```python
+  @pytest.mark.parametrize(
+      "input_data,expected_result",
+      [
+          ({"type": "A", "value": 1}, "processed-A-1"),
+          ({"type": "B", "value": 2}, "processed-B-2"),
+          ({"type": "C", "value": 3}, "processed-C-3"),
+      ],
+  )
+  def test_process_data(input_data, expected_result):
+      result = process_data(input_data)
+      assert result == expected_result
+  ```

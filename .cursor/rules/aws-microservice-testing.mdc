@@ -1,0 +1,283 @@
+---
+description: 
+globs: **/tests/**/*.py,**/tests/**/*.json
+alwaysApply: false
+---
+# AWS Microservice Testing Patterns
+
+## Test Setup Patterns
+
+### S3 Mocking Pattern
+
+```python
+@mock_aws
+def test_s3_based_service():
+    # Set up mocked S3 environment
+    s3 = boto3.client("s3", region_name="us-west-2")
+    s3.create_bucket(
+        Bucket="test-bucket", 
+        CreateBucketConfiguration={"LocationConstraint": "us-west-2"}
+    )
+    
+    # Upload test data
+    test_key = "test/path/data.json"
+    s3.put_object(
+        Bucket="test-bucket",
+        Key=test_key,
+        Body=json.dumps(test_data).encode(),
+        ContentType="application/json",
+    )
+    
+    # Import the module after moto is activated
+    # This ensures all AWS clients in the module use the mocked endpoints
+    from app import process_s3_event
+    
+    # Create event that mimics S3 trigger
+    event = {
+        "Records": [{
+            "s3": {
+                "bucket": {"name": "test-bucket"},
+                "object": {"key": test_key}
+            }
+        }]
+    }
+    
+    # Run the function and assert results
+    result = process_s3_event(event, {})
+    assert result["statusCode"] == 200
+```
+
+### DynamoDB Mocking Pattern
+
+```python
+@mock_aws
+def test_dynamodb_operations():
+    # Set up mocked DynamoDB
+    ddb = boto3.resource("dynamodb", region_name="us-west-2")
+    ddb.create_table(
+        TableName="test-table",
+        KeySchema=[{"AttributeName": "id", "KeyType": "HASH"}],
+        AttributeDefinitions=[{"AttributeName": "id", "AttributeType": "S"}],
+        ProvisionedThroughput={"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
+    )
+    
+    # Import after moto setup
+    from app import save_item
+    
+    # Test data creation
+    test_item = {"id": "123", "name": "Test Item", "created_at": "2023-01-01T00:00:00Z"}
+    
+    # Test the function
+    save_item(test_item)
+    
+    # Verify data was saved correctly
+    table = ddb.Table("test-table")
+    response = table.get_item(Key={"id": "123"})
+    assert "Item" in response
+    assert response["Item"]["name"] == "Test Item"
+```
+
+### Lambda Context Mocking Pattern
+
+```python
+class MockLambdaContext:
+    """Stub implementation of Lambda context object."""
+    function_name = "test-function"
+    memory_limit_in_mb = 128
+    invoked_function_arn = "arn:aws:lambda:us-west-2:000000000000:function:test-function"
+    aws_request_id = "test-request-id"
+
+@mock_aws
+def test_lambda_handler():
+    # Setup mocked AWS services
+    
+    # Import after moto setup
+    from app import lambda_handler
+    
+    # Create test event
+    event = {...}  # Test event payload
+    
+    # Use the mock context
+    result = lambda_handler(event, MockLambdaContext())
+    
+    # Assert expected results
+    assert result["statusCode"] == 200
+```
+
+## End-to-End Testing Patterns
+
+### Document Processing Pipeline Test
+
+```python
+@mock_aws
+def test_document_processing_pipeline(document_fixture):
+    """Test the complete document processing pipeline from upload to storage."""
+    # Setup all required AWS services
+    _setup_s3()
+    _setup_dynamodb()
+    
+    # 1. Upload document to S3 (simulating upload)
+    s3 = boto3.client("s3")
+    s3.put_object(
+        Bucket="input-bucket",
+        Key=f"documents/{document_fixture['id']}.pdf",
+        Body=b"test pdf content"
+    )
+    
+    # 2. Import and trigger document processor
+    from document_processor import process_new_document
+    result = process_new_document(document_fixture["id"])
+    
+    # 3. Verify document metadata was saved to DynamoDB
+    ddb = boto3.resource("dynamodb")
+    table = ddb.Table("documents-table")
+    item = table.get_item(Key={"id": document_fixture["id"]})["Item"]
+    assert item["status"] == "PROCESSED"
+    
+    # 4. Verify processed result was saved to output S3 bucket
+    result_exists = _check_s3_object_exists(
+        "output-bucket", 
+        f"processed/{document_fixture['id']}/result.json"
+    )
+    assert result_exists
+```
+
+### Microservice Integration Test
+
+```python
+@mock_aws
+def test_microservice_integration():
+    """Test integration between multiple microservices using mocked AWS."""
+    # Setup required AWS services
+    _setup_shared_resources()
+    
+    # 1. Trigger first microservice
+    from service_a import process_input
+    process_result = process_input({"data": "test"})
+    
+    # 2. Verify intermediate data was created correctly
+    intermediate_data = _get_intermediate_data(process_result["reference_id"])
+    assert intermediate_data["status"] == "READY_FOR_NEXT_STEP"
+    
+    # 3. Trigger second microservice
+    from service_b import process_intermediate
+    final_result = process_intermediate(process_result["reference_id"])
+    
+    # 4. Verify end result
+    assert final_result["status"] == "COMPLETE"
+    assert _check_final_output(process_result["reference_id"])
+```
+
+## Business Rule Testing Pattern
+
+```python
+def test_business_rule_enforcement():
+    """Test that business rules are correctly enforced in the pipeline."""
+    # Setup test conditions that should trigger business rule
+    
+    # Run the process that enforces business rules
+    from rules_engine import validate_document
+    
+    # Test valid case
+    valid_result = validate_document(valid_document)
+    assert valid_result["valid"] == True
+    
+    # Test invalid case - should identify specific rule violation
+    invalid_result = validate_document(invalid_document)
+    assert invalid_result["valid"] == False
+    assert invalid_result["violations"][0]["rule_id"] == "RULE_123"
+```
+
+## Database Transaction Testing Pattern
+
+```python
+def test_database_transaction_integrity(db_session):
+    """Test database transaction integrity with rollback on failure."""
+    # Import the service under test
+    from document_service import save_document_with_chunks
+    
+    # Create test document with invalid chunks that should fail validation
+    test_doc = {"id": "test-123", "title": "Test Document"}
+    test_chunks = [
+        {"id": "chunk-1", "content": "Valid content"},
+        {"id": "chunk-2", "content": None}  # Invalid - should trigger validation error
+    ]
+    
+    # Attempt to save document with invalid chunks
+    with pytest.raises(ValidationError):
+        save_document_with_chunks(db_session, test_doc, test_chunks)
+    
+    # Verify transaction was rolled back - document should not exist
+    document = db_session.query(Document).filter_by(document_id="test-123").one_or_none()
+    assert document is None
+    
+    # Verify no chunks were saved either
+    chunks = db_session.query(Chunk).filter(Chunk.document_id.like("test-%")).all()
+    assert len(chunks) == 0
+```
+
+## Fixture Organization Pattern
+
+```python
+# In conftest.py
+@pytest.fixture(scope="session")
+def test_documents():
+    """Create a range of test documents with different characteristics."""
+    return [
+        {
+            "id": "doc-valid-complete",
+            "title": "Valid Complete Document",
+            "content": "Full content",
+            "metadata": {"pages": 5, "author": "Test Author"},
+            "expected_result": "PROCESSED"
+        },
+        {
+            "id": "doc-valid-minimal",
+            "title": "Valid Minimal Document",
+            "content": "Minimal content",
+            "metadata": {"pages": 1},
+            "expected_result": "PROCESSED"
+        },
+        {
+            "id": "doc-invalid-missing-title",
+            "id": "Invalid Document",
+            "content": "Content without title",
+            "expected_result": "ERROR"
+        }
+    ]
+
+@pytest.fixture
+def valid_complete_document(test_documents):
+    """Return a valid and complete document fixture."""
+    return next(doc for doc in test_documents if doc["id"] == "doc-valid-complete")
+```
+
+## Event-Driven Architecture Testing Pattern
+
+```python
+@mock_aws
+def test_event_driven_workflow():
+    """Test an event-driven workflow across multiple services."""
+    # Setup SNS, SQS, and other services
+    _setup_event_infrastructure()
+    
+    # 1. Publish event to SNS topic
+    from event_publisher import publish_document_event
+    event_id = publish_document_event("document-created", {"document_id": "test-123"})
+    
+    # 2. Verify subscribers received the message
+    from subscriber_service import get_processed_events
+    processed_events = get_processed_events("test-123")
+    
+    # Allow time for async processing
+    time.sleep(1)
+    
+    # 3. Verify all expected processing occurred
+    assert len(processed_events) > 0
+    assert processed_events[0]["status"] == "PROCESSED"
+    
+    # 4. Verify final state in database
+    from data_service import get_document_status
+    status = get_document_status("test-123")
+    assert status == "COMPLETE"
+```

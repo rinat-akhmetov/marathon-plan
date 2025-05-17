@@ -1,0 +1,320 @@
+---
+description: 
+globs: **/tests/**/*.py,**/tests/**/*.json
+alwaysApply: false
+---
+# Test Fixture Management Patterns
+
+## Fixture Organization Principles
+
+- Keep fixtures modular and focused on specific test requirements
+- Organize fixtures in conftest.py files at appropriate levels:
+  - Root conftest.py for project-wide fixtures
+  - Module-level conftest.py for domain-specific fixtures
+- Use appropriate fixture scopes to optimize test performance:
+  - `function`: Default, isolated per test (best for mutable fixtures)
+  - `class`: Shared across tests in a class
+  - `module`: Shared across all tests in a module
+  - `session`: Shared across all tests (best for immutable/read-only fixtures)
+
+## JSON Test Data Management
+
+```python
+# tests/conftest.py
+import json
+from pathlib import Path
+
+@pytest.fixture(scope="session")
+def fixtures_dir() -> Path:
+    """Path to the directory that contains the JSON fixtures used in the tests."""
+    return Path(__file__).parent / "fixtures"
+
+@pytest.fixture(scope="session")
+def classification_payload(fixtures_dir: Path) -> dict:
+    """Load classification test data from JSON fixture file."""
+    return json.loads((fixtures_dir / "classification_result.json").read_text())
+
+@pytest.fixture(scope="session")
+def embedding_payload(fixtures_dir: Path) -> dict:
+    """Load embedding test data from JSON fixture file."""
+    return json.loads((fixtures_dir / "embedding_result.json").read_text())
+```
+
+## Fixture Factory Pattern
+
+```python
+# tests/conftest.py
+import uuid
+from datetime import datetime, timezone
+
+@pytest.fixture
+def document_factory():
+    """Factory fixture to generate document test data with controlled randomization."""
+    
+    def _create_document(
+        doc_id=None, 
+        title="Test Document", 
+        content="Test content", 
+        doc_type="PDF",
+        metadata=None
+    ):
+        """Create a test document with the given parameters."""
+        doc_id = doc_id or f"doc-{uuid.uuid4()}"
+        created_at = datetime.now(timezone.utc).isoformat()
+        
+        return {
+            "id": doc_id,
+            "title": title,
+            "content": content,
+            "type": doc_type,
+            "created_at": created_at,
+            "metadata": metadata or {}
+        }
+    
+    return _create_document
+
+# In a test file
+def test_document_processing(document_factory):
+    # Create test documents with specific attributes
+    doc1 = document_factory(title="Simple Document")
+    doc2 = document_factory(doc_type="DOCX", metadata={"pages": 5})
+    
+    # Use documents in test
+    assert process_document(doc1)["status"] == "PROCESSED"
+```
+
+## Fixture Dependencies and Composition
+
+```python
+# Layered fixtures that build upon each other
+@pytest.fixture
+def base_user():
+    """Base user data."""
+    return {
+        "id": "user-123",
+        "username": "testuser",
+        "email": "test@example.com"
+    }
+
+@pytest.fixture
+def authenticated_user(base_user):
+    """User with authentication details."""
+    user = base_user.copy()
+    user.update({
+        "is_authenticated": True,
+        "auth_token": "test-token-xyz"
+    })
+    return user
+
+@pytest.fixture
+def admin_user(authenticated_user):
+    """User with admin privileges."""
+    user = authenticated_user.copy()
+    user.update({
+        "role": "admin",
+        "permissions": ["read", "write", "delete", "manage_users"]
+    })
+    return user
+```
+
+## Parametrized Fixtures
+
+```python
+@pytest.fixture(params=["small", "medium", "large"])
+def document_size(request):
+    """Parametrized fixture for testing with different document sizes."""
+    sizes = {
+        "small": {"pages": 5, "word_count": 100},
+        "medium": {"pages": 20, "word_count": 5000},
+        "large": {"pages": 100, "word_count": 50000}
+    }
+    return sizes[request.param]
+
+def test_document_processing_with_size(document_size):
+    """Test will run 3 times, once for each document size."""
+    # Generate document of specified size
+    doc = generate_test_document(pages=document_size["pages"], words=document_size["word_count"])
+    
+    # Test that processing works for all sizes
+    result = process_document(doc)
+    assert result["status"] == "PROCESSED"
+```
+
+## Database Fixtures with In-Memory SQLite
+
+```python
+@pytest.fixture(scope="function")
+def db_engine():
+    """Create an in-memory SQLite database engine."""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    yield engine
+    engine.dispose()
+
+@pytest.fixture
+def db_session(db_engine):
+    """Create a new database session for a test."""
+    connection = db_engine.connect()
+    transaction = connection.begin()
+    Session = sessionmaker(bind=connection)
+    session = Session()
+    
+    yield session
+    
+    session.close()
+    transaction.rollback()
+    connection.close()
+```
+
+## AWS Service Fixture Pattern
+
+```python
+@pytest.fixture
+def s3_bucket():
+    """Set up a mocked S3 bucket for testing."""
+    with mock_aws():
+        s3 = boto3.resource("s3", region_name="us-west-2")
+        bucket_name = "test-bucket"
+        
+        # Create the bucket
+        s3.create_bucket(
+            Bucket=bucket_name,
+            CreateBucketConfiguration={"LocationConstraint": "us-west-2"}
+        )
+        
+        yield bucket_name
+        
+        # Clean up is automatic with mock_aws
+
+@pytest.fixture
+def dynamodb_table():
+    """Set up a mocked DynamoDB table for testing."""
+    with mock_aws():
+        dynamodb = boto3.resource("dynamodb", region_name="us-west-2")
+        table_name = "test-table"
+        
+        # Create the table
+        table = dynamodb.create_table(
+            TableName=table_name,
+            KeySchema=[{"AttributeName": "id", "KeyType": "HASH"}],
+            AttributeDefinitions=[{"AttributeName": "id", "AttributeType": "S"}],
+            ProvisionedThroughput={"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
+        )
+        
+        yield table
+        
+        # Clean up is automatic with mock_aws
+```
+
+## Test Data Organization Patterns
+
+### Directory Structure
+
+```
+tests/
+├── conftest.py              # Shared fixtures
+├── fixtures/                # Test data files
+│   ├── classification_result.json
+│   ├── embedding_result.json
+│   └── documents/
+│       ├── sample1.pdf
+│       └── sample2.pdf
+├── factories/               # Test data factories 
+│   ├── document_factory.py
+│   └── user_factory.py
+└── test_modules/
+    ├── test_classification.py
+    └── test_embedding.py
+```
+
+### Test Class Organization
+
+```python
+class TestDocumentProcessing:
+    """Tests for document processing functionality."""
+    
+    @pytest.fixture
+    def sample_document(self, document_factory):
+        """Create a sample document for this test class."""
+        return document_factory(title="Class Test Document")
+    
+    def test_process_valid_document(self, sample_document):
+        """Test processing a valid document."""
+        result = process_document(sample_document)
+        assert result["status"] == "SUCCESS"
+    
+    def test_process_empty_document(self, document_factory):
+        """Test processing an empty document."""
+        empty_doc = document_factory(content="")
+        result = process_document(empty_doc)
+        assert result["status"] == "ERROR"
+        assert result["error"] == "Empty document content"
+```
+
+## Fixture Clean-Up Patterns
+
+```python
+@pytest.fixture
+def temp_files():
+    """Create temporary files that are automatically cleaned up."""
+    created_files = []
+    
+    def _create_file(content, name=None):
+        name = name or f"test-{uuid.uuid4()}.txt"
+        path = Path(tempfile.gettempdir()) / name
+        path.write_text(content)
+        created_files.append(path)
+        return path
+    
+    yield _create_file
+    
+    # Clean up all created files
+    for file_path in created_files:
+        if file_path.exists():
+            file_path.unlink()
+```
+
+## Environment Fixture Pattern
+
+```python
+@pytest.fixture
+def aws_credentials():
+    """Set fake AWS credentials for testing."""
+    os.environ["AWS_ACCESS_KEY_ID"] = "testing"
+    os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
+    os.environ["AWS_SECURITY_TOKEN"] = "testing"
+    os.environ["AWS_SESSION_TOKEN"] = "testing"
+    os.environ["AWS_DEFAULT_REGION"] = "us-west-2"
+    
+    yield
+    
+    # Clean up
+    os.environ.pop("AWS_ACCESS_KEY_ID", None)
+    os.environ.pop("AWS_SECRET_ACCESS_KEY", None)
+    os.environ.pop("AWS_SECURITY_TOKEN", None)
+    os.environ.pop("AWS_SESSION_TOKEN", None)
+    os.environ.pop("AWS_DEFAULT_REGION", None)
+
+@pytest.fixture
+def app_config():
+    """Set application configuration for tests."""
+    original_values = {}
+    
+    # Save original values
+    for key in ["BUCKET_NAME", "TABLE_NAME", "ENDPOINT_URL"]:
+        original_values[key] = os.environ.get(key)
+    
+    # Set test values
+    os.environ["BUCKET_NAME"] = "test-bucket"
+    os.environ["TABLE_NAME"] = "test-table"
+    os.environ["ENDPOINT_URL"] = "http://localhost:4566"
+    
+    yield
+    
+    # Restore original values
+    for key, value in original_values.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+```
