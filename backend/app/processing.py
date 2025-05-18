@@ -40,7 +40,7 @@ class AnalyzeRunsOutput(BaseModel):
     zone_pct: Dict[str, float]
 
 
-def process_zip(zip_bytes: bytes) -> dict[str, Any]:
+def process_zip(zip_bytes: bytes) -> AnalyzeRunsOutput:
     with tempfile.TemporaryDirectory() as td:
         zip_path = os.path.join(td, "upload.zip")
         with open(zip_path, "wb") as f:
@@ -68,11 +68,15 @@ def process_zip(zip_bytes: bytes) -> dict[str, Any]:
         print(df.head())
         runs, metrics, zone_pct = analyze_runs(df)
         logging.info(f"Analyzed {len(df)} runs")
-        return {
-            "runs": runs.to_dict(orient="records"),
-            "metrics": metrics.to_dict(orient="records"),
-            "zone_pct": zone_pct,
-        }
+        # Build and return pydantic output model from raw dict
+        output = AnalyzeRunsOutput.model_validate(
+            {
+                "runs": runs.to_dict(orient="records"),
+                "metrics": metrics.to_dict(orient="records"),
+                "zone_pct": zone_pct,
+            }
+        )
+        return output
 
 
 def haversine(lat1, lon1, lat2, lon2, *, R=6371):
