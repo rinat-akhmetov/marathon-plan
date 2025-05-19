@@ -1,6 +1,7 @@
 import json
+import logging
 import math
-from pprint import pprint
+import traceback
 from typing import Any
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
@@ -48,10 +49,12 @@ async def upload_data(file: UploadFile = File(...), db: DBSession = Depends(get_
         # Get pydantic output model for analyzed runs
         summary_model = process_zip(content)
     except Exception as e:
+        logging.error(f"Error processing zip: {e}")
+        logging.error(traceback.format_exc())
         raise HTTPException(status_code=400, detail=str(e))
     # Serialize pydantic model to primitive types for JSON storage and response
     summary = summary_model.model_dump()
-    pprint(summary)
+    logging.info(str(summary))
     sess = SessionModel(summary_json=json.dumps(summary, default=str))
     db.add(sess)
     db.commit()

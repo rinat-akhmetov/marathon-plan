@@ -34,10 +34,13 @@ from pydantic import BaseModel
 
 class TrackPoint(BaseModel):
     time: Optional[datetime] = None
-    lat: float
-    lon: float
+    lat: Optional[float] = None
+    lon: Optional[float] = None
     ele: Optional[float] = None
     hr: Optional[int] = None
+    distance: Optional[float] = None  # metres
+    speed: Optional[float] = None  # metres per second
+    cadence: Optional[int] = None  # revolutions / steps per minute
     activity_type: Optional[str] = None
     run: Optional[str] = None
 

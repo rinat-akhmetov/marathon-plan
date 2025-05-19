@@ -1,10 +1,6 @@
-#!/usr/bin/env python3
+from typing import Optional
+
 """
-parse_strava_fit.py — Extract rich running metrics from a Strava .fit or .fit.gz file.
-
-USAGE:
-    python parse_strava_fit.py path/to/activity.fit[.gz] -o out.csv
-
 FEATURES:
 • Transparently handles raw *.fit* and compressed *.fit.gz* files.
 • Leverages the `fitparse` library to iterate over every **record** message.
@@ -23,7 +19,7 @@ import gzip
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from .utils import TrackPoint
 
@@ -90,8 +86,7 @@ def parse_fit(path: str) -> List[TrackPoint]:  # Updated return type
         lat = _semicircle_to_deg(lat_raw)
         lon = _semicircle_to_deg(lon_raw)
 
-        if lat is None or lon is None:
-            continue  # skip points lacking coordinates
+        # Removed skipping points lacking coordinates
 
         # Ensure timestamp is datetime object
         timestamp_raw = record.get_value("timestamp")
@@ -100,10 +95,25 @@ def parse_fit(path: str) -> List[TrackPoint]:  # Updated return type
             timestamp = timestamp_raw
 
         # Ensure heart rate is int or None
+
         hr_raw = record.get_value("heart_rate")
         hr: Optional[int] = None
         if isinstance(hr_raw, (int, float)):  # fitparse might return float for hr sometimes
             hr = int(hr_raw)
+
+        # Distance in metres (may be None)
+        dist_raw = record.get_value("distance")
+        distance = float(dist_raw) if isinstance(dist_raw, (int, float)) else None
+
+        # Instantaneous speed in m/s – prefer enhanced_speed when available
+        speed_raw = record.get_value("enhanced_speed") or record.get_value("speed")
+        speed = float(speed_raw) if isinstance(speed_raw, (int, float)) else None
+
+        # Cadence (steps or pedalling rpm)
+        cad_raw = (
+            record.get_value("cadence") or record.get_value("enhanced_cadence") or record.get_value("total_cycles")
+        )
+        cadence = int(cad_raw) if isinstance(cad_raw, (int, float)) else None
 
         name = Path(path).stem
         pt = TrackPoint(
@@ -112,21 +122,13 @@ def parse_fit(path: str) -> List[TrackPoint]:  # Updated return type
             lon=lon,
             ele=record.get_value("altitude"),  # altitude is usually float
             hr=hr,
+            distance=distance,
+            speed=speed,
+            cadence=cadence,
             activity_type=activity_type,
             run=name,
         )
         track_points_data.append(pt)
 
     fit_io.close()  # Important to close the file handle
-
     return track_points_data
-
-
-# ────────────────────────────────────────────────────────────────────────────────
-#  Metric enrichment (same logic as GPX version)
-# ────────────────────────────────────────────────────────────────────────────────
-
-
-# ────────────────────────────────────────────────────────────────────────────────
-#  CLI
-# ────────────────────────────────────────────────────────────────────────────────
